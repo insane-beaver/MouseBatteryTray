@@ -187,7 +187,9 @@ namespace MouseBatteryTray
         void UpdateDrain(BatteryReading r)
         {
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (r.Charging) { SaveSetting("DrainAt", 0); return; }
+            if (r.Charging) { SaveSetting("DrainAt", 0); SaveSetting("ChargeEnd", (int)now); return; }
+            // Voltage keeps settling for a while after the cable is pulled, that's not real drain
+            if (now - Setting("ChargeEnd", 0) < 900) { SaveSetting("DrainAt", 0); return; }
             long at = Setting("DrainAt", 0);
             int pct = Setting("DrainPct", 0);
             if (at == 0 || r.Percent > pct)

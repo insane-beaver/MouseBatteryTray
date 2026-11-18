@@ -53,6 +53,7 @@ namespace MouseBatteryTray
         readonly SynchronizationContext ui;
         BatteryReading last;
         int lowBattery = Setting("LowBattery", 15);
+        int retries;
         bool lowWarned, fullNotified, busy, pending, lastFresh;
         IntPtr iconHandle;
 
@@ -123,6 +124,8 @@ namespace MouseBatteryTray
 
         void Kick() { kick.Stop(); kick.Start(); }
 
+        void KickNow() { kick.Interval = 1000; Kick(); }
+
         void StartListeners()
         {
             foreach (var d in Hid.Enumerate(Hid.CompxVid).Where(Hid.IsCompxConfig))
@@ -131,7 +134,7 @@ namespace MouseBatteryTray
                 var dev = d;
                 new Thread(() =>
                 {
-                    try { Hid.Listen(dev, () => ui.Post(_ => Kick(), null)); }
+                    try { Hid.Listen(dev, () => ui.Post(_ => { retries = 3; KickNow(); }, null)); }
                     finally { lock (listening) listening.Remove(dev.Path); }
                 }) { IsBackground = true }.Start();
             }
@@ -146,6 +149,10 @@ namespace MouseBatteryTray
                 var r = await Task.Run(() => ReadAny(null));
                 if (r != null) { r.Percent = Smooth(r.Percent); last = r; UpdateDrain(r); }
                 Render(r != null);
+                // Right after a wake-up push the mouse may not answer yet: retry soon, and poll faster while stale
+                timer.Interval = r != null ? PollMs : 5000;
+                if (r != null) retries = 0;
+                else if (retries > 0) { retries--; kick.Interval = 2000; Kick(); }
             }
             catch (Exception ex) { SetIcon("!", Color.OrangeRed, Trim(FallbackName + ": " + ex.Message)); }
             finally

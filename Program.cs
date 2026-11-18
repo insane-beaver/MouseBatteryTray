@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -47,7 +48,7 @@ namespace MouseBatteryTray
         readonly NotifyIcon tray = new NotifyIcon();
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = PollMs };
         readonly System.Windows.Forms.Timer kick = new System.Windows.Forms.Timer { Interval = 1000 };
-        readonly ToolStripMenuItem autostartItem;
+        ToolStripMenuItem autostartItem;
         readonly HashSet<string> listening = new HashSet<string>();
         readonly SynchronizationContext ui;
         BatteryReading last;
@@ -55,32 +56,13 @@ namespace MouseBatteryTray
         bool lowWarned, fullNotified, busy, pending, lastFresh;
         IntPtr iconHandle;
 
+        // -1 = follow Windows UI language, 0 = Ukrainian, 1 = English
+        static bool En => Setting("Lang", -1) is int l && l >= 0 ? l == 1 : CultureInfo.CurrentUICulture.TwoLetterISOLanguageName != "uk";
+        static string T(string uk, string en) => En ? en : uk;
+
         public TrayApp()
         {
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("Оновити", null, (s, e) => Poll());
-            menu.Items.Add("Діагностика", null, (s, e) => Diagnostics());
-            var lowMenu = new ToolStripMenuItem("Попереджати при");
-            foreach (var v in new[] { 10, 15, 20, 0 })
-            {
-                var item = new ToolStripMenuItem(v == 0 ? "Не попереджати" : v + "%") { Tag = v, Checked = v == lowBattery };
-                item.Click += (s, e) =>
-                {
-                    lowBattery = (int)item.Tag;
-                    SaveSetting("LowBattery", lowBattery);
-                    foreach (ToolStripMenuItem i in lowMenu.DropDownItems) i.Checked = i == item;
-                    lowWarned = false;
-                    Render(lastFresh);
-                };
-                lowMenu.DropDownItems.Add(item);
-            }
-            menu.Items.Add(lowMenu);
-            autostartItem = new ToolStripMenuItem("Запускати з Windows", null, (s, e) => ToggleAutostart()) { Checked = AutostartEnabled() };
-            menu.Items.Add(autostartItem);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Вихід", null, (s, e) => ExitThread());
-
-            tray.ContextMenuStrip = menu;
+            BuildMenu();
             tray.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) Poll(); };
             tray.Visible = true;
             SetIcon("…", Color.Gray, FallbackName);
@@ -98,6 +80,45 @@ namespace MouseBatteryTray
             timer.Start();
             StartListeners();
             Poll();
+        }
+
+        void BuildMenu()
+        {
+            var menu = new ContextMenuStrip();
+            menu.Items.Add(T("Оновити", "Refresh"), null, (s, e) => Poll());
+            menu.Items.Add(T("Діагностика", "Diagnostics"), null, (s, e) => Diagnostics());
+            var lowMenu = new ToolStripMenuItem(T("Попереджати при", "Warn at"));
+            foreach (var v in new[] { 10, 15, 20, 0 })
+            {
+                var item = new ToolStripMenuItem(v == 0 ? T("Не попереджати", "Never") : v + "%") { Tag = v, Checked = v == lowBattery };
+                item.Click += (s, e) =>
+                {
+                    lowBattery = (int)item.Tag;
+                    SaveSetting("LowBattery", lowBattery);
+                    foreach (ToolStripMenuItem i in lowMenu.DropDownItems) i.Checked = i == item;
+                    lowWarned = false;
+                    Render(lastFresh);
+                };
+                lowMenu.DropDownItems.Add(item);
+            }
+            menu.Items.Add(lowMenu);
+            var langMenu = new ToolStripMenuItem("Мова / Language");
+            foreach (var code in new[] { 0, 1 })
+                langMenu.DropDownItems.Add(new ToolStripMenuItem(code == 1 ? "English" : "Українська", null, (s, e) =>
+                {
+                    SaveSetting("Lang", code);
+                    BuildMenu();
+                    Render(lastFresh);
+                }) { Checked = En == (code == 1) });
+            menu.Items.Add(langMenu);
+            autostartItem = new ToolStripMenuItem(T("Запускати з Windows", "Start with Windows"), null, (s, e) => ToggleAutostart()) { Checked = AutostartEnabled() };
+            menu.Items.Add(autostartItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(T("Вихід", "Exit"), null, (s, e) => ExitThread());
+
+            var old = tray.ContextMenuStrip;
+            tray.ContextMenuStrip = menu;
+            old?.Dispose();
         }
 
         void Kick() { kick.Stop(); kick.Start(); }
@@ -163,14 +184,14 @@ namespace MouseBatteryTray
             string name = string.IsNullOrWhiteSpace(last.Device.Product) ? FallbackName : last.Device.Product;
             string tip = $"{name} {last.Percent}%";
             var hours = last.Charging ? null : HoursLeft(last.Percent);
-            if (hours != null) tip += hours < 1 ? " · <1 год" : $" · ~{Math.Round(hours.Value):0} год";
+            if (hours != null) tip += hours < 1 ? T(" · <1 год", " · <1 h") : $" · ~{Math.Round(hours.Value):0} " + T("год", "h");
             SetIcon(last.Percent.ToString(), c, tip);
 
             if (!fresh) return;
             if (lowBattery > 0 && !last.Charging && last.Percent <= lowBattery && !lowWarned)
             {
                 lowWarned = true;
-                tray.ShowBalloonTip(5000, "Мишка сідає", $"Залишилось {last.Percent}%", ToolTipIcon.Warning);
+                tray.ShowBalloonTip(5000, T("Мишка сідає", "Mouse battery low"), T("Залишилось", "Remaining") + $" {last.Percent}%", ToolTipIcon.Warning);
             }
             if (last.Charging || last.Percent > lowBattery + 5) lowWarned = false;
 
@@ -178,7 +199,7 @@ namespace MouseBatteryTray
             if (last.Charging && (last.Firmware >= 100 || last.Percent >= 100) && !fullNotified)
             {
                 fullNotified = true;
-                tray.ShowBalloonTip(5000, "Мишка заряджена", "Можна знімати з кабелю", ToolTipIcon.Info);
+                tray.ShowBalloonTip(5000, T("Мишка заряджена", "Mouse charged"), T("Можна знімати з кабелю", "You can unplug the cable"), ToolTipIcon.Info);
             }
             if (!last.Charging) fullNotified = false;
         }

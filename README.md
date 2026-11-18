@@ -8,6 +8,26 @@ Tiny Windows tray app that shows the battery level of an Attack Shark X8 Ultimat
 - Tooltip: device name, percent and estimated hours left
 - Low battery and "fully charged" notifications, configurable warning threshold
 - Autostart toggle, diagnostics dump
+- English and Ukrainian UI (follows the Windows language, switchable in the menu)
+
+## Compatibility
+
+The app is not tied to Attack Shark. It talks to any mouse whose receiver uses the CompX chipset: USB vendor ID `0x3554` with a vendor HID collection on usage page `0xFF02` and 17-byte reports. The device name in the tooltip is read from the device itself.
+
+| Mouse | Status |
+|---|---|
+| Attack Shark X8 Ultimate | Tested (receiver `F517`, cable `F515`) |
+| Attack Shark X8 Ultra | Should work, same hardware and same official web driver as the Ultimate |
+| VGN Y2 Ultra | Should work, same protocol confirmed by other projects |
+| Other VGN / VXE / ATK mice on CompX receivers | Likely, untested. Some models only push battery on their own and may not answer the query |
+| Redragon M916 ULT / M916 PRO 1K | Should work, same protocol confirmed by other projects |
+| Scyrox V6, Zaopin Z4D | Should work, same protocol confirmed by other projects |
+| Attack Shark X8 SE / Plus / Pro | Not supported: different chip (Beken), the mouse pushes battery on its own in another format |
+| Attack Shark X11 | Not supported: different vendor ID (`1d57`), no output reports |
+
+The percent is calculated from voltage with the Attack Shark battery curve. For other brands the number may differ a few percent from their own software.
+
+If your mouse is not listed, run the app and open **Diagnostics** from the tray menu. If you see a `0xFF02` interface with `in=17 out=17` and a `RESULT` line with a percent, it works. Feel free to open an issue with the diagnostics output either way.
 
 ## Build
 
